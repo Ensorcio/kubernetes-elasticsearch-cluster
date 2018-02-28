@@ -1,0 +1,31 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: mongo
+  namespace: graylog
+  labels:
+    component: mongo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: mongo
+  template:
+    metadata:
+      labels:
+        component: mongo
+    spec:
+      containers:
+      - name: mongo
+        image: gcr.io/elastic-cluster-191900/mongo:latest
+        ports:
+        - containerPort: 27017
+          name: tcp
+          protocol: TCP
+        volumeMounts:
+        - name: storage
+          mountPath: /data
+      volumes:
+          - emptyDir:
+              medium: ""
+            name: storage

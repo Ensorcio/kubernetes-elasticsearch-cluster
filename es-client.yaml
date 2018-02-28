@@ -2,11 +2,12 @@ apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   name: es-client
+  namespace: graylog
   labels:
     component: elasticsearch
     role: client
 spec:
-  replicas: 2
+  replicas: 1
   template:
     metadata:
       labels:
@@ -24,7 +25,8 @@ spec:
           privileged: true
       containers:
       - name: es-client
-        image: quay.io/pires/docker-elasticsearch-kubernetes:6.1.2
+        # replace image with your own elasticsearch image or a public one
+        image: us.gcr.io/elastic-cluster-191900/elasticsearch-danngo:5.6.8
         env:
         - name: NAMESPACE
           valueFrom:
@@ -34,16 +36,35 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        # These variables are used in the elasticsearch.yml file
         - name: CLUSTER_NAME
-          value: myesdb
+          value: graylog
+        - name: MEMORY_LOCK
+          value: "false"
         - name: NODE_MASTER
           value: "false"
         - name: NODE_DATA
           value: "false"
+        - name: NODE_INGEST
+          value: "true"
+        - name: MAX_LOCAL_STORAGE_NODES
+          value: "1"
+        - name: PROCESSORS
+          value: "1"
         - name: HTTP_ENABLE
           value: "true"
+        - name: HTTP_CORS_ENABLE
+          value: "true"
+        - name: HTTP_CORS_ALLOW_ORIGIN
+          value: "*"
+        - name: DISCOVERY_SERVICE
+          value: "elasticsearch-discovery"
+        - name: ES_PLUGINS_INSTALL
+          value: "repository-gcs"
         - name: ES_JAVA_OPTS
-          value: -Xms256m -Xmx256m
+          value: -Xms2g -Xmx2g
+        - name: NUMBER_OF_MASTERS
+          value: "1"
         - name: NETWORK_HOST
           value: _site_,_lo_
         ports:
@@ -54,12 +75,6 @@ spec:
         livenessProbe:
           tcpSocket:
             port: transport
-        readinessProbe:
-          httpGet:
-            path: /_cluster/health
-            port: http
-          initialDelaySeconds: 20
-          timeoutSeconds: 5
         volumeMounts:
         - name: storage
           mountPath: /data
