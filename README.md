@@ -14,7 +14,7 @@ Elasticsearch (6.1.2) cluster on top of Kubernetes made easy.
 * [Deploy with Helm](#helm)
 * [Install plug-ins](#plugins)
 * [Clean-up with Curator](#curator)
-* [Kibana](#kibana)
+* [Graylog](#graylog)
 * [FAQ](#faq)
 * [Troubleshooting](#troubleshooting)
 
@@ -25,7 +25,7 @@ Elasticsearch best-practices recommend to separate nodes in three roles:
 * `Client` nodes - intended for client usage, no data, with HTTP API
 * `Data` nodes - intended for storing and indexing data, no HTTP API
 
-Given this, I'm going to demonstrate how to provision a production grade scenario consisting of 3 master, 2 client and 2 data nodes.
+This is a set of Kubernetes Deployment and Service files that will provision a production grade scenario consisting of 3 master, 2 client and 2 data nodes for the ElasticSearch cluster. In addition, it will provision one MongoDB, three Graylog nodes, and one Graylog master node.
 
 <a id="important-notes">
 
@@ -34,12 +34,14 @@ Given this, I'm going to demonstrate how to provision a production grade scenari
 * Elasticsearch pods need for an init-container to run in privileged mode, so it can set some VM options. For that to happen, the `kubelet` should be running with args `--allow-privileged`, otherwise
 the init-container will fail to run.
 
-* By default, `ES_JAVA_OPTS` is set to `-Xms256m -Xmx256m`. This is a *very low* value but many users, i.e. `minikube` users, were having issues with pods getting killed because hosts were out of memory.
+* By default, `ES_JAVA_OPTS` is set to `-Xms2G -Xmx2G`. Keep this in consideration as it may affect your pricing.
 One can change this in the deployment descriptors available in this repository.
 
 * As of the moment, Kubernetes pod descriptors use an `emptyDir` for storing data in each data node container. This is meant to be for the sake of simplicity and should be adapted according to one's storage needs.
 
 * The [stateful](stateful) directory contains an example which deploys the data pods as a `StatefulSet`. These use a `volumeClaimTemplates` to provision persistent storage for each pod.
+
+* Graylog will not run on ElasticSearch 6.X versions. Deploy your cluster with a 5.X build of ElasticSearch.
 
 <a id="pre-requisites">
 
@@ -52,9 +54,9 @@ One can change this in the deployment descriptors available in this repository.
 
 <a id="build-images">
 
-## Build images (optional)
+## Build images
 
-Providing one's own version of [the images automatically built from this repository](https://github.com/pires/docker-elasticsearch-kubernetes) will not be supported. This is an *optional* step. One has been warned.
+Providing one's own version of [the images automatically built from this repository] will not be supported. The images in this repository are generic images from Elastic, Mongo, and Graylog. One has been warned.
 
 ## Test
 
@@ -63,12 +65,21 @@ Providing one's own version of [the images automatically built from this reposit
 ```
 kubectl create -f es-discovery-svc.yaml
 kubectl create -f es-svc.yaml
+kubectl create -f mongo-db-svc.yaml
+kubectl create -f graylog-node-svc.yaml
+kubectl create -f graylog-svc.yaml
 kubectl create -f es-master.yaml
 kubectl rollout status -f es-master.yaml
 kubectl create -f es-client.yaml
 kubectl rollout status -f es-client.yaml
 kubectl create -f es-data.yaml
 kubectl rollout status -f es-data.yaml
+kubectl create -f mongodb.yaml
+kubectl rollout status -f mongodb.yaml
+kubectl create -f graylog-node.yaml
+kubectl rollout status -f graylog-node.yaml
+kubectl create -f graylog.yaml
+kubectl rollout status -f graylog.yaml
 ```
 
 Check one of the Elasticsearch master nodes logs:
@@ -142,7 +153,7 @@ As we can assert, the cluster is up and running. Easy, wasn't it?
 
 *Don't forget* that services in Kubernetes are only acessible from containers in the cluster. For different behavior one should [configure the creation of an external load-balancer](http://kubernetes.io/v1.1/docs/user-guide/services.html#type-loadbalancer). While it's supported within this example service descriptor, its usage is out of scope of this document, for now.
 
-*Note:* if you are using one of the cloud providers which support external load balancers, setting the type field to "LoadBalancer" will provision a load balancer for your Service. You can uncomment the field in [es-svc.yaml](https://github.com/pires/kubernetes-elasticsearch-cluster/blob/master/es-svc.yaml).
+*Note:* if you are using one of the cloud providers which support external load balancers, setting the type field to "LoadBalancer" will provision a load balancer for your Service. You can comment out the field in [es-svc.yaml](https://github.com/Ensorcio/kubernetes-elasticsearch-graylog-cluster/blob/master/es-svc.yaml) if you wish not to use one.
 ```
 $ kubectl get svc elasticsearch
 NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
@@ -160,7 +171,7 @@ One should see something similar to the following:
 ```json
 {
   "name" : "es-client-76fb6ffdf4-nn5b2",
-  "cluster_name" : "myesdb",
+  "cluster_name" : "graylog",
   "cluster_uuid" : "SEjviHIJQ8-SEloYYcez8w",
   "version" : {
     "number" : "6.1.2",
@@ -185,7 +196,7 @@ One should see something similar to the following:
 
 ```json
 {
-  "cluster_name" : "myesdb",
+  "cluster_name" : "graylog",
   "status" : "green",
   "timed_out" : false,
   "number_of_nodes" : 7,
@@ -312,38 +323,17 @@ kubectl delete configmap curator-config
 
 Various parameters of the cluster, including replica count and memory allocations, can be adjusted by editing the `helm-elasticsearch/values.yaml` file. For information about Helm, please consult the [complete Helm documentation](https://github.com/kubernetes/helm/blob/master/docs/index.md).
 
-<a id="kibana>
+<a id="graylog>
 
-## Kibana
+## Graylog
 
-**ATTENTION**: This is community supported so it most probably is out-of-date.
-
-Additionally, one can also add Kibana to the mix. In order to do so, one must use a container image of Kibana without x-pack,
-as it's not supported by the Elasticsearch container images used in this repository.
-
-An image is already provided but one can build their own like follows:
+The Graylog service will expose the web console through your provider's loadbalancer. You can test access to the web console by typing the address in your browser:
 
 ```
-FROM docker.elastic.co/kibana/kibana:5.5.1
-RUN bin/kibana-plugin remove x-pack
+http://<Graylog-Service-LoadBalancer-IP>:9000
 ```
 
-If ones does provide their own image, one must make sure to alter the following files before deploying:
-
-```
-kubectl create -f kibana.yaml
-kubectl create -f kibana-svc.yaml
-```
-
-Kibana will be available through service `kibana`, and one will be able to access it from within the cluster or
-proxy it through the Kubernetes API Server, as follows:
-
-```
-https://<API_SERVER_URL>/api/v1/proxy/namespaces/default/services/kibana/proxy
-```
-
-One can also create an Ingress to expose the service publicly or simply use the service nodeport.
-In the case one proceeds to do so, one must change the environment variable `SERVER_BASEPATH` to the match their environment.
+When deploying the Graylog deployment file, be sure to modify the `GRAYLOG_REST_TRANSPORT_URI` to your loadbalancer IP for the Graylog service.
 
 ## FAQ
 
@@ -352,7 +342,7 @@ The default value for this environment variable is 2, meaning a cluster will nee
 
 
 ### How can I customize `elasticsearch.yaml`?
-Read a different config file by settings env var `path.conf=/path/to/my/config/`. Another option would be to build one's own image from  [this repository](https://github.com/pires/docker-elasticsearch-kubernetes)
+Read a different config file by settings env var `path.conf=/path/to/my/config/`. Another option would be to build one's own image from  [this repository](https://github.com/elastic/elasticsearch-docker)
 
 ## Troubleshooting
 
